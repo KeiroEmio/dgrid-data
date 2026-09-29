@@ -31,5 +31,6 @@ COPY --from=build /app/package-lock.json ./package-lock.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-api ./dist-api
+COPY --from=build /app/src/abi ./src/abi
 
 CMD ["npm", "run", "pm2:runtime"]
