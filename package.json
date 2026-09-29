@@ -1,0 +1,38 @@
+{
+    "name": "dgrid-data",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "tsx src/index.ts",
+        "build": "tsc -p tsconfig.json",
+        "start": "node dist/index.js",
+        "api:dev": "tsx --tsconfig tsconfig.api.json api/main.ts",
+        "api:build": "tsc -p tsconfig.api.json",
+        "api:start": "node dist-api/api/main.js",
+        "pm2:start": "pm2 start dist/index.js --name dgrid-data",
+        "pm2:runtime": "pm2-runtime dist/index.js --name dgrid-data",
+        "pm2:api:start": "pm2 start dist-api/api/main.js --name dgrid-data-api",
+        "pm2:api:runtime": "pm2-runtime dist-api/api/main.js --name dgrid-data-api",
+        "pm2:list": "pm2 list",
+        "pm2:logs": "pm2 logs",
+        "pm2:stop": "pm2 stop dgrid-data dgrid-data-api"
+    },
+    "dependencies": {
+        "@nestjs/common": "latest",
+        "@nestjs/core": "latest",
+        "@nestjs/platform-express": "latest",
+        "dotenv": "latest",
+        "pg": "latest",
+        "pm2": "latest",
+        "reflect-metadata": "latest",
+        "rxjs": "latest",
+        "viem": "latest"
+    },
+    "devDependencies": {
+        "@types/node": "latest",
+        "@types/pg": "latest",
+        "tsx": "latest",
+        "typescript": "latest"
+    }
+}
