@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-api
+.git
+.env
+*.log
+.DS_Store
+data/*.json
