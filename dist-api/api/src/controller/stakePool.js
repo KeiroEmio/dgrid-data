@@ -10,7 +10,8 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
+import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { StakePoolService } from '../service/stakePool.js';
 let StakePoolController = class StakePoolController {
     stakePoolService;
@@ -28,6 +29,15 @@ let StakePoolController = class StakePoolController {
     }
     getFixedRateRewardClaimInfo() {
         return this.stakePoolService.getFixedRateRewardClaimInfo();
+    }
+    getMiningOverview() {
+        return this.stakePoolService.getMiningOverview();
+    }
+    getMiningTrend(days, interval) {
+        return this.stakePoolService.getMiningTrend({ days, interval });
+    }
+    getMiningFlows(wallet, action, day, limit, offset) {
+        return this.stakePoolService.getMiningFlows({ wallet, action, day, limit, offset });
     }
 };
 __decorate([
@@ -55,7 +65,43 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], StakePoolController.prototype, "getFixedRateRewardClaimInfo", null);
+__decorate([
+    ApiOperation({ summary: '挖矿统计总览' }),
+    Get('mining/overview'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], StakePoolController.prototype, "getMiningOverview", null);
+__decorate([
+    ApiOperation({ summary: '挖矿收益趋势' }),
+    ApiQuery({ name: 'days', required: false, example: '30' }),
+    ApiQuery({ name: 'interval', required: false, example: 'day' }),
+    Get('mining/trend'),
+    __param(0, Query('days')),
+    __param(1, Query('interval')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], StakePoolController.prototype, "getMiningTrend", null);
+__decorate([
+    ApiOperation({ summary: '挖矿收益流水' }),
+    ApiQuery({ name: 'wallet', required: false }),
+    ApiQuery({ name: 'action', required: false, example: 'claim' }),
+    ApiQuery({ name: 'day', required: false, example: '180' }),
+    ApiQuery({ name: 'limit', required: false, example: '50' }),
+    ApiQuery({ name: 'offset', required: false, example: '0' }),
+    Get('mining/flows'),
+    __param(0, Query('wallet')),
+    __param(1, Query('action')),
+    __param(2, Query('day')),
+    __param(3, Query('limit')),
+    __param(4, Query('offset')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, String, String]),
+    __metadata("design:returntype", void 0)
+], StakePoolController.prototype, "getMiningFlows", null);
 StakePoolController = __decorate([
+    ApiTags('stakePool'),
     Controller('stakePool'),
     __metadata("design:paramtypes", [StakePoolService])
 ], StakePoolController);

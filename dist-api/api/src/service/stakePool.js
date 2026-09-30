@@ -162,6 +162,451 @@ let StakePoolService = class StakePoolService {
             }
         };
     }
+    async getStakingOverview() {
+        const claimInfo = await this.getFixedRateRewardClaimInfo();
+        const nodeResult = await this.database.query(`with node_principal as (
+        select node_id, sum(amount) as amount
+        from dgai_staking_stake_events
+        where day in (180, 360)
+        group by node_id
+
+        union all
+
+        select node_id, -sum(amount) as amount
+        from dgai_staking_unstake_events
+        where day in (180, 360)
+        group by node_id
+      ), active_nodes as (
+        select node_id
+        from node_principal
+        group by node_id
+        having sum(amount) > 0
+      )
+      select count(*)::integer as active_nodes from active_nodes`);
+        return {
+            earnedRaw: claimInfo.earnedRaw,
+            restaked180Raw: claimInfo.restaked180Raw,
+            restaked360Raw: claimInfo.restaked360Raw,
+            claimedNetRaw: claimInfo.claimedNetRaw,
+            pendingRaw: claimInfo.pendingRaw,
+            restakeConversionRate: claimInfo.restakeConversionRate,
+            principalRaw: claimInfo.principalRaw,
+            activeRaw: claimInfo.activeRaw,
+            unlockingRaw: claimInfo.unlockingRaw,
+            withdrawableRaw: claimInfo.withdrawableRaw,
+            counts: {
+                ...claimInfo.counts,
+                activeStakingNodes: nodeResult.rows[0]?.active_nodes ?? 0
+            }
+        };
+    }
+    async getStakingTrend(query) {
+        const days = Math.min(Math.max(Number(query.days ?? '30'), 1), 365);
+        const interval = query.interval ?? 'day';
+        if (interval !== 'day') {
+            throw new BadRequestException('interval only supports day');
+        }
+        const result = await this.database.query(`with buckets as (
+        select generate_series(
+          date_trunc('day', now()) - (($1::integer - 1) * interval '1 day'),
+          date_trunc('day', now()),
+          interval '1 day'
+        ) as bucket
+      ), claim_daily as (
+        select
+          date_trunc('day', created_at) as bucket,
+          sum(amount) as claimed_net_raw,
+          count(*) as claim_events
+        from dgai_staking_claim_events
+        where day in (180, 360)
+          and created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', created_at)
+      ), restake_daily as (
+        select
+          date_trunc('day', created_at) as bucket,
+          sum(amount) filter (where target_day = 180) as restaked_180_raw,
+          sum(amount) filter (where target_day = 360) as restaked_360_raw,
+          count(*) as restake_events
+        from dgai_staking_restake_dgai_events
+        where created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', created_at)
+      ), stake_daily as (
+        select
+          date_trunc('day', created_at) as bucket,
+          sum(amount) as stake_raw,
+          count(*) as stake_events
+        from dgai_staking_stake_events
+        where day in (180, 360)
+          and created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', created_at)
+      ), unstake_daily as (
+        select
+          date_trunc('day', created_at) as bucket,
+          sum(amount) as unstake_raw,
+          count(*) as unstake_events
+        from dgai_staking_unstake_events
+        where day in (180, 360)
+          and created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', created_at)
+      ), claim_unstake_daily as (
+        select
+          date_trunc('day', created_at) as bucket,
+          sum(amount) as claim_unstake_raw,
+          count(*) as claim_unstake_events
+        from dgai_staking_claim_unstake_events
+        where created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', created_at)
+      )
+      select
+        to_char(buckets.bucket, 'YYYY-MM-DD') as date,
+        coalesce(claim_daily.claimed_net_raw, 0)::text as claimed_net_raw,
+        coalesce(restake_daily.restaked_180_raw, 0)::text as restaked_180_raw,
+        coalesce(restake_daily.restaked_360_raw, 0)::text as restaked_360_raw,
+        coalesce(stake_daily.stake_raw, 0)::text as stake_raw,
+        coalesce(unstake_daily.unstake_raw, 0)::text as unstake_raw,
+        coalesce(claim_unstake_daily.claim_unstake_raw, 0)::text as claim_unstake_raw,
+        coalesce(claim_daily.claim_events, 0)::integer as claim_events,
+        coalesce(restake_daily.restake_events, 0)::integer as restake_events,
+        coalesce(stake_daily.stake_events, 0)::integer as stake_events,
+        coalesce(unstake_daily.unstake_events, 0)::integer as unstake_events,
+        coalesce(claim_unstake_daily.claim_unstake_events, 0)::integer as claim_unstake_events
+      from buckets
+      left join claim_daily on claim_daily.bucket = buckets.bucket
+      left join restake_daily on restake_daily.bucket = buckets.bucket
+      left join stake_daily on stake_daily.bucket = buckets.bucket
+      left join unstake_daily on unstake_daily.bucket = buckets.bucket
+      left join claim_unstake_daily on claim_unstake_daily.bucket = buckets.bucket
+      order by buckets.bucket asc`, [days]);
+        return {
+            interval,
+            days,
+            items: result.rows.map((row) => ({
+                date: row.date,
+                claimedNetRaw: row.claimed_net_raw,
+                restaked180Raw: row.restaked_180_raw,
+                restaked360Raw: row.restaked_360_raw,
+                stakeRaw: row.stake_raw,
+                unstakeRaw: row.unstake_raw,
+                claimUnstakeRaw: row.claim_unstake_raw,
+                claimEvents: row.claim_events,
+                restakeEvents: row.restake_events,
+                stakeEvents: row.stake_events,
+                unstakeEvents: row.unstake_events,
+                claimUnstakeEvents: row.claim_unstake_events
+            }))
+        };
+    }
+    async getStakingFlows(query) {
+        const limit = Math.min(Math.max(Number(query.limit ?? '50'), 1), 200);
+        const offset = Math.max(Number(query.offset ?? '0'), 0);
+        const values = [];
+        const where = [];
+        if (query.wallet) {
+            values.push(query.wallet.toLowerCase());
+            where.push(`lower(wallet) = $${values.length}`);
+        }
+        if (query.action) {
+            values.push(query.action);
+            where.push(`action = $${values.length}`);
+        }
+        if (query.day) {
+            if (!/^\d+$/.test(query.day)) {
+                throw new BadRequestException('day must be a positive integer');
+            }
+            values.push(query.day);
+            where.push(`day = $${values.length}::numeric`);
+        }
+        values.push(limit);
+        const limitIndex = values.length;
+        values.push(offset);
+        const offsetIndex = values.length;
+        const whereSql = where.length > 0 ? `where ${where.join(' and ')}` : '';
+        const result = await this.database.query(`with flows as (
+        select
+          'stake'::text as action,
+          staker as wallet,
+          node_id,
+          day,
+          amount as amount_raw,
+          transaction_hash,
+          block_number,
+          log_index,
+          created_at
+        from dgai_staking_stake_events
+        where day in (180, 360)
+
+        union all
+
+        select
+          'unstake'::text as action,
+          staker as wallet,
+          node_id,
+          day,
+          amount as amount_raw,
+          transaction_hash,
+          block_number,
+          log_index,
+          created_at
+        from dgai_staking_unstake_events
+        where day in (180, 360)
+
+        union all
+
+        select
+          'claim'::text as action,
+          staker as wallet,
+          node_id,
+          day,
+          amount as amount_raw,
+          transaction_hash,
+          block_number,
+          log_index,
+          created_at
+        from dgai_staking_claim_events
+        where day in (180, 360)
+
+        union all
+
+        select
+          'restake'::text as action,
+          user_address as wallet,
+          target_node_id as node_id,
+          target_day as day,
+          amount as amount_raw,
+          transaction_hash,
+          block_number,
+          log_index,
+          created_at
+        from dgai_staking_restake_dgai_events
+
+        union all
+
+        select
+          'claimUnstake'::text as action,
+          staker as wallet,
+          null::numeric as node_id,
+          null::numeric as day,
+          amount as amount_raw,
+          transaction_hash,
+          block_number,
+          log_index,
+          created_at
+        from dgai_staking_claim_unstake_events
+      )
+      select
+        action,
+        wallet,
+        node_id::text,
+        day::text,
+        amount_raw::text,
+        transaction_hash,
+        block_number::text,
+        log_index,
+        created_at
+      from flows
+      ${whereSql}
+      order by block_number desc, log_index desc
+      limit $${limitIndex} offset $${offsetIndex}`, values);
+        return {
+            limit,
+            offset,
+            items: result.rows.map((row) => ({
+                action: row.action,
+                wallet: row.wallet,
+                nodeId: row.node_id,
+                day: row.day,
+                amountRaw: row.amount_raw,
+                transactionHash: row.transaction_hash,
+                blockNumber: row.block_number,
+                logIndex: row.log_index,
+                createdAt: row.created_at
+            }))
+        };
+    }
+    async getMiningOverview() {
+        const claimInfo = await this.getAccPerShareRewardClaimInfo();
+        const nodeResult = await this.database.query(`with node_principal as (
+        select node_id, sum(amount) as amount
+        from dgai_staking_stake_events
+        where day in (180, 360)
+        group by node_id
+
+        union all
+
+        select node_id, -sum(amount) as amount
+        from dgai_staking_unstake_events
+        where day in (180, 360)
+        group by node_id
+      ), active_nodes as (
+        select node_id
+        from node_principal
+        group by node_id
+        having sum(amount) > 0
+      )
+      select count(*)::integer as active_nodes from active_nodes`);
+        const walletResult = await this.database.query(`with reward_wallets as (
+        select user_address as wallet, sum(amount) as claimed_raw
+        from dgrid_stake_pool_harvest_events
+        where lower(reward_token) = lower($1)
+        group by user_address
+      )
+      select
+        count(*)::integer as lifetime_reward_wallets,
+        count(*) filter (where claimed_raw > 0)::integer as current_pending_wallets
+      from reward_wallets`, [this.config.dgaiAddress]);
+        return {
+            earnedRaw: claimInfo.earnedRaw,
+            restaked180Raw: claimInfo.restaked180Raw,
+            restaked360Raw: claimInfo.restaked360Raw,
+            claimedNetRaw: claimInfo.claimedNetRaw,
+            rewardFeeRaw: claimInfo.rewardFeeRaw,
+            pendingRaw: claimInfo.pendingRaw,
+            restakeConversionRate: claimInfo.restakeConversionRate,
+            counts: {
+                lifetimeRewardWallets: walletResult.rows[0]?.lifetime_reward_wallets ?? 0,
+                currentPendingWallets: walletResult.rows[0]?.current_pending_wallets ?? 0,
+                activeMiningNodes: nodeResult.rows[0]?.active_nodes ?? 0
+            }
+        };
+    }
+    async getMiningTrend(query) {
+        const days = Math.min(Math.max(Number(query.days ?? '30'), 1), 365);
+        const interval = query.interval ?? 'day';
+        if (interval !== 'day') {
+            throw new BadRequestException('interval only supports day');
+        }
+        const result = await this.database.query(`with buckets as (
+        select generate_series(
+          date_trunc('day', now()) - (($1::integer - 1) * interval '1 day'),
+          date_trunc('day', now()),
+          interval '1 day'
+        ) as bucket
+      ), harvest_daily as (
+        select
+          date_trunc('day', created_at) as bucket,
+          sum(amount) as claimed_net_raw,
+          count(*) as claimed_events
+        from dgrid_stake_pool_harvest_events
+        where lower(reward_token) = lower($2)
+          and created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', created_at)
+      ), restake_daily as (
+        select
+          date_trunc('day', created_at) as bucket,
+          sum(amount) filter (where day = 180) as restaked_180_raw,
+          sum(amount) filter (where day = 360) as restaked_360_raw,
+          count(*) as restake_events
+        from dgai_staking_restake_reward_call_events
+        where created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', created_at)
+      )
+      select
+        to_char(buckets.bucket, 'YYYY-MM-DD') as date,
+        coalesce(harvest_daily.claimed_net_raw, 0)::text as claimed_net_raw,
+        coalesce(restake_daily.restaked_180_raw, 0)::text as restaked_180_raw,
+        coalesce(restake_daily.restaked_360_raw, 0)::text as restaked_360_raw,
+        coalesce(harvest_daily.claimed_events, 0)::integer as claimed_events,
+        coalesce(restake_daily.restake_events, 0)::integer as restake_events
+      from buckets
+      left join harvest_daily on harvest_daily.bucket = buckets.bucket
+      left join restake_daily on restake_daily.bucket = buckets.bucket
+      order by buckets.bucket asc`, [days, this.config.dgaiAddress]);
+        return {
+            interval,
+            days,
+            items: result.rows.map((row) => ({
+                date: row.date,
+                claimedNetRaw: row.claimed_net_raw,
+                restaked180Raw: row.restaked_180_raw,
+                restaked360Raw: row.restaked_360_raw,
+                claimedEvents: row.claimed_events,
+                restakeEvents: row.restake_events
+            }))
+        };
+    }
+    async getMiningFlows(query) {
+        const limit = Math.min(Math.max(Number(query.limit ?? '50'), 1), 200);
+        const offset = Math.max(Number(query.offset ?? '0'), 0);
+        const values = [this.config.dgaiAddress];
+        const where = [];
+        if (query.wallet) {
+            values.push(query.wallet.toLowerCase());
+            where.push(`lower(wallet) = $${values.length}`);
+        }
+        if (query.action) {
+            values.push(query.action);
+            where.push(`action = $${values.length}`);
+        }
+        if (query.day) {
+            if (!/^\d+$/.test(query.day)) {
+                throw new BadRequestException('day must be a positive integer');
+            }
+            values.push(query.day);
+            where.push(`day = $${values.length}::numeric`);
+        }
+        values.push(limit);
+        const limitIndex = values.length;
+        values.push(offset);
+        const offsetIndex = values.length;
+        const whereSql = where.length > 0 ? `where ${where.join(' and ')}` : '';
+        const result = await this.database.query(`with flows as (
+        select
+          'claim'::text as action,
+          user_address as wallet,
+          null::numeric as day,
+          amount as amount_raw,
+          0::numeric as fee_raw,
+          transaction_hash,
+          block_number,
+          log_index,
+          created_at
+        from dgrid_stake_pool_harvest_events
+        where lower(reward_token) = lower($1)
+
+        union all
+
+        select
+          'restake'::text as action,
+          user_address as wallet,
+          day,
+          amount as amount_raw,
+          0::numeric as fee_raw,
+          transaction_hash,
+          block_number,
+          log_index,
+          created_at
+        from dgai_staking_restake_reward_call_events
+      )
+      select
+        action,
+        wallet,
+        day::text,
+        amount_raw::text,
+        fee_raw::text,
+        transaction_hash,
+        block_number::text,
+        log_index,
+        created_at
+      from flows
+      ${whereSql}
+      order by block_number desc, log_index desc
+      limit $${limitIndex} offset $${offsetIndex}`, values);
+        return {
+            limit,
+            offset,
+            items: result.rows.map((row) => ({
+                action: row.action,
+                wallet: row.wallet,
+                day: row.day,
+                amountRaw: row.amount_raw,
+                feeRaw: row.fee_raw,
+                transactionHash: row.transaction_hash,
+                blockNumber: row.block_number,
+                logIndex: row.log_index,
+                createdAt: row.created_at
+            }))
+        };
+    }
     async updateFixedRateRewardState() {
         await this.ensureFixedRateTables();
         await this.database.query('select pg_advisory_lock($1)', [2026092901]);
