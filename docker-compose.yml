@@ -20,7 +20,7 @@ services:
       - .env
     command: npm run pm2:api:runtime
     ports:
-      - "3000:3000"
+      - "13001:13001"
     depends_on:
       - dgrid-data-crawler
     networks:
