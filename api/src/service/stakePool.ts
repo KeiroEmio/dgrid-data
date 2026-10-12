@@ -232,27 +232,6 @@ export class StakePoolService {
 
   async getStakingOverview() {
     const claimInfo = await this.getFixedRateRewardClaimInfo();
-    const nodeResult = await this.database.query<{ active_nodes: number }>(
-      `with node_principal as (
-        select node_id, sum(amount) as amount
-        from dgai_staking_stake_events
-        where day in (180, 360)
-        group by node_id
-
-        union all
-
-        select node_id, -sum(amount) as amount
-        from dgai_staking_unstake_events
-        where day in (180, 360)
-        group by node_id
-      ), active_nodes as (
-        select node_id
-        from node_principal
-        group by node_id
-        having sum(amount) > 0
-      )
-      select count(*)::integer as active_nodes from active_nodes`
-    );
 
     return {
       earnedRaw: claimInfo.earnedRaw,
@@ -264,11 +243,7 @@ export class StakePoolService {
       principalRaw: claimInfo.principalRaw,
       activeRaw: claimInfo.activeRaw,
       unlockingRaw: claimInfo.unlockingRaw,
-      withdrawableRaw: claimInfo.withdrawableRaw,
-      counts: {
-        ...claimInfo.counts,
-        activeStakingNodes: nodeResult.rows[0]?.active_nodes ?? 0
-      }
+      withdrawableRaw: claimInfo.withdrawableRaw
     };
   }
 
@@ -536,43 +511,6 @@ export class StakePoolService {
 
   async getMiningOverview() {
     const claimInfo = await this.getAccPerShareRewardClaimInfo();
-    const nodeResult = await this.database.query<{ active_nodes: number }>(
-      `with node_principal as (
-        select node_id, sum(amount) as amount
-        from dgai_staking_stake_events
-        where day in (180, 360)
-        group by node_id
-
-        union all
-
-        select node_id, -sum(amount) as amount
-        from dgai_staking_unstake_events
-        where day in (180, 360)
-        group by node_id
-      ), active_nodes as (
-        select node_id
-        from node_principal
-        group by node_id
-        having sum(amount) > 0
-      )
-      select count(*)::integer as active_nodes from active_nodes`
-    );
-    const walletResult = await this.database.query<{
-      lifetime_reward_wallets: number;
-      current_pending_wallets: number;
-    }>(
-      `with reward_wallets as (
-        select user_address as wallet, sum(amount) as claimed_raw
-        from dgrid_stake_pool_harvest_events
-        where lower(reward_token) = lower($1)
-        group by user_address
-      )
-      select
-        count(*)::integer as lifetime_reward_wallets,
-        count(*) filter (where claimed_raw > 0)::integer as current_pending_wallets
-      from reward_wallets`,
-      [this.config.dgaiAddress]
-    );
 
     return {
       earnedRaw: claimInfo.earnedRaw,
@@ -581,12 +519,7 @@ export class StakePoolService {
       claimedNetRaw: claimInfo.claimedNetRaw,
       rewardFeeRaw: claimInfo.rewardFeeRaw,
       pendingRaw: claimInfo.pendingRaw,
-      restakeConversionRate: claimInfo.restakeConversionRate,
-      counts: {
-        lifetimeRewardWallets: walletResult.rows[0]?.lifetime_reward_wallets ?? 0,
-        currentPendingWallets: walletResult.rows[0]?.current_pending_wallets ?? 0,
-        activeMiningNodes: nodeResult.rows[0]?.active_nodes ?? 0
-      }
+      restakeConversionRate: claimInfo.restakeConversionRate
     };
   }
 
