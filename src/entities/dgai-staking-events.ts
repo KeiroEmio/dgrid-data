@@ -6,6 +6,8 @@ export const DGAI_STAKING_EVENT_NAMES = [
   'Unstake',
   'Claim',
   'ClaimUnstake',
+  'CancelUnstake',
+  'ChangeNode',
   'RestakeRewardCall',
   'RestakeDGAI'
 ] as const;
@@ -18,6 +20,7 @@ export type DgridStakePoolEventName = (typeof DGRID_STAKE_POOL_EVENT_NAMES)[numb
 export type ChainEventMeta = {
   contractAddress: Address;
   blockNumber: string;
+  blockTimestamp: string;
   transactionHash: Hex;
   logIndex: number;
 };
@@ -56,6 +59,26 @@ export type ClaimUnstakeEventEntity = ChainEventMeta & {
   amount: string;
 };
 
+export type CancelUnstakeEventEntity = ChainEventMeta & {
+  eventName: 'CancelUnstake';
+  nodeId: string;
+  staker: Address;
+  cancelRequestId: string;
+  day: string;
+  amount: string;
+};
+
+export type ChangeNodeEventEntity = ChainEventMeta & {
+  eventName: 'ChangeNode';
+  user: Address;
+  fromNodeId: string;
+  toNodeId: string;
+  day: string;
+  amount: string;
+  canceledPendingUnstake: string;
+  cancelRequestIds: string[];
+};
+
 export type RestakeRewardCallEventEntity = ChainEventMeta & {
   eventName: 'RestakeRewardCall';
   user: Address;
@@ -86,6 +109,8 @@ export type DgaiStakingEventEntity =
   | UnstakeEventEntity
   | ClaimEventEntity
   | ClaimUnstakeEventEntity
+  | CancelUnstakeEventEntity
+  | ChangeNodeEventEntity
   | RestakeRewardCallEventEntity
   | RestakeDgaiEventEntity
   | HarvestEventEntity;
@@ -99,10 +124,18 @@ function asAddress(value: JsonValue | undefined) {
   return getAddress(asString(value));
 }
 
+function asStringArray(value: JsonValue | undefined) {
+  if (!Array.isArray(value)) throw new Error('Missing event argument');
+  return value.map((item) => String(item));
+}
+
 function base(event: IndexedEvent): ChainEventMeta {
+  if (event.blockTimestamp === undefined) throw new Error('Missing block timestamp');
+
   return {
     contractAddress: event.contractAddress,
     blockNumber: event.blockNumber,
+    blockTimestamp: event.blockTimestamp,
     transactionHash: event.transactionHash,
     logIndex: event.logIndex
   };
@@ -149,6 +182,28 @@ export function toDgaiStakingEventEntity(event: IndexedEvent): DgaiStakingEventE
         staker: asAddress(args.staker),
         requestId: asString(args.requestId),
         amount: asString(args.amount)
+      };
+    case 'CancelUnstake':
+      return {
+        ...base(event),
+        eventName: 'CancelUnstake',
+        nodeId: asString(args.nodeId),
+        staker: asAddress(args.staker),
+        cancelRequestId: asString(args.cancelRequestId),
+        day: asString(args.day),
+        amount: asString(args.amount)
+      };
+    case 'ChangeNode':
+      return {
+        ...base(event),
+        eventName: 'ChangeNode',
+        user: asAddress(args.user),
+        fromNodeId: asString(args.fromNodeId),
+        toNodeId: asString(args.toNodeId),
+        day: asString(args.day),
+        amount: asString(args.amount),
+        canceledPendingUnstake: asString(args.canceledPendingUnstake),
+        cancelRequestIds: asStringArray(args.cancelRequestIds)
       };
     case 'RestakeRewardCall':
       return {

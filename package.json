@@ -5,6 +5,7 @@
     "type": "module",
     "scripts": {
         "dev": "tsx src/index.ts",
+        "fixedRate:reset": "tsx src/reset-fixed-rate-state.ts",
         "build": "tsc -p tsconfig.json",
         "start": "node dist/index.js",
         "api:dev": "tsx --tsconfig tsconfig.api.json api/main.ts",

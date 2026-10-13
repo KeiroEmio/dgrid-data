@@ -9,6 +9,8 @@ export {
   type UnstakeEventEntity,
   type ClaimEventEntity,
   type ClaimUnstakeEventEntity,
+  type CancelUnstakeEventEntity,
+  type ChangeNodeEventEntity,
   type RestakeRewardCallEventEntity,
   type RestakeDgaiEventEntity,
   type HarvestEventEntity

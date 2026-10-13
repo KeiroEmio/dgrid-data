@@ -7,6 +7,7 @@ export type IndexedEvent = {
   contractAddress: Address;
   eventName: string;
   blockNumber: string;
+  blockTimestamp?: string;
   transactionHash: Hex;
   logIndex: number;
   transactionFunctionName?: string;

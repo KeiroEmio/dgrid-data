@@ -86,6 +86,14 @@ async function getBlockTimestamps(
   return new Map(entries);
 }
 
+function applyBlockTimestamps(events: IndexedEvent[], blockTimestamps: Map<string, bigint>) {
+  return events.map((event) => {
+    const timestamp = blockTimestamps.get(event.blockNumber);
+    if (timestamp === undefined) throw new Error(`Missing timestamp for block ${event.blockNumber}`);
+    return { ...event, blockTimestamp: timestamp.toString() };
+  });
+}
+
 async function getTransactionFunctionNames(
   client: ReturnType<typeof createPublicClient>,
   abi: Abi,
@@ -147,8 +155,9 @@ async function main() {
           })
         );
         const events = contractEvents.flat();
-        const entities = events.map(toDgaiStakingEventEntity).filter((event) => event !== null);
         const blockTimestamps = await getBlockTimestamps(client, events);
+        const eventsWithTimestamps = applyBlockTimestamps(events, blockTimestamps);
+        const entities = eventsWithTimestamps.map(toDgaiStakingEventEntity).filter((event) => event !== null);
 
         // for (const event of entities) {
         //   console.log(JSON.stringify(event, null, 2));

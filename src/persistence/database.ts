@@ -6,7 +6,7 @@ import type { IndexedEvent, EventStats } from '../types.js';
 const YEAR_SECONDS = BigInt(365 * 24 * 60 * 60);
 const RATE_SCALE = BigInt(10000);
 const RATE_180_BPS = BigInt(6000);
-const RATE_360_BPS = BigInt(8000);
+const RATE_360_BPS = BigInt(9000);
 
 type FixedRateState = {
   principal180Raw: bigint;
@@ -16,6 +16,11 @@ type FixedRateState = {
   lastProcessedBlock: bigint;
   lastProcessedLogIndex: number;
 };
+
+type FixedRateRewardEvent = Extract<
+  DgaiStakingEventEntity,
+  { eventName: 'Stake' | 'Unstake' | 'CancelUnstake' | 'ChangeNode' }
+>;
 
 export class Database {
   private readonly pool: Pool;
@@ -87,16 +92,42 @@ export class Database {
         id bigserial primary key,
         transaction_hash text not null,
         log_index integer not null,
+        request_id numeric,
+        staker text,
+        node_id numeric,
         day numeric not null,
         amount numeric not null,
         release_time numeric not null,
         processed boolean not null default false,
+        canceled boolean not null default false,
+        canceled_by_transaction_hash text,
+        canceled_by_log_index integer,
         created_at timestamptz not null default now(),
         unique (transaction_hash, log_index)
       );
 
+      alter table stake_fixed_rate_principal_releases
+        add column if not exists request_id numeric,
+        add column if not exists staker text,
+        add column if not exists node_id numeric,
+        add column if not exists canceled boolean not null default false,
+        add column if not exists canceled_by_transaction_hash text,
+        add column if not exists canceled_by_log_index integer;
+
+      update stake_fixed_rate_principal_releases releases
+      set
+        request_id = unstake.request_id,
+        staker = unstake.staker,
+        node_id = unstake.node_id
+      from dgai_staking_unstake_events unstake
+      where releases.transaction_hash = unstake.transaction_hash
+        and releases.log_index = unstake.log_index
+        and releases.request_id is null;
+
       create index if not exists stake_fixed_rate_principal_releases_due_idx
-        on stake_fixed_rate_principal_releases (processed, release_time);
+        on stake_fixed_rate_principal_releases (processed, canceled, release_time);
+      create index if not exists stake_fixed_rate_principal_releases_request_id_idx
+        on stake_fixed_rate_principal_releases (request_id);
     `);
   }
 
@@ -226,9 +257,40 @@ export class Database {
     );
   }
 
+  async resetFixedRateRewardState(startBlock: bigint) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('truncate table stake_fixed_rate_reward_state, stake_fixed_rate_principal_releases restart identity');
+      await client.query(
+        `insert into block_indexer (indexer_name, next_from_block)
+        values ('DGridContracts', $1)
+        on conflict (indexer_name) do update set
+          next_from_block = excluded.next_from_block,
+          current_from_block = null,
+          current_to_block = null,
+          retry_count = 0,
+          last_error = null,
+          updated_at = now()`,
+        [startBlock.toString()]
+      );
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async updateFixedRateRewardState(events: DgaiStakingEventEntity[], blockTimestamps: Map<string, bigint>) {
     const rewardEvents = events
-      .filter((event) => event.eventName === 'Stake' || event.eventName === 'Unstake')
+      .filter((event): event is FixedRateRewardEvent =>
+        event.eventName === 'Stake' ||
+        event.eventName === 'Unstake' ||
+        event.eventName === 'CancelUnstake' ||
+        event.eventName === 'ChangeNode'
+      )
       .filter((event) => event.day === '180' || event.day === '360')
       .sort((left, right) => {
         const blockDiff = BigInt(left.blockNumber) - BigInt(right.blockNumber);
@@ -251,11 +313,20 @@ export class Database {
         state = await this.processDueReleases(state, eventTimestamp);
         state = this.settleFixedRateReward(state, eventTimestamp);
 
-        if (event.eventName === 'Stake') {
-          state = this.addPrincipal(state, BigInt(event.day), BigInt(event.amount));
-        } else {
-          await this.insertPrincipalRelease(event);
-          state = await this.processDueReleases(state, eventTimestamp);
+        switch (event.eventName) {
+          case 'Stake':
+            state = this.addPrincipal(state, BigInt(event.day), BigInt(event.amount));
+            break;
+          case 'Unstake':
+            await this.insertPrincipalRelease(event);
+            state = await this.processDueReleases(state, eventTimestamp);
+            break;
+          case 'CancelUnstake':
+            await this.cancelPrincipalReleases([event.cancelRequestId], event.staker, event.nodeId, event.transactionHash, event.logIndex);
+            break;
+          case 'ChangeNode':
+            await this.cancelPrincipalReleases(event.cancelRequestIds, event.user, event.fromNodeId, event.transactionHash, event.logIndex);
+            break;
         }
 
         state.lastProcessedBlock = BigInt(event.blockNumber);
@@ -332,12 +403,54 @@ export class Database {
       `insert into stake_fixed_rate_principal_releases (
         transaction_hash,
         log_index,
+        request_id,
+        staker,
+        node_id,
         day,
         amount,
         release_time
-      ) values ($1, $2, $3, $4, $5)
-      on conflict (transaction_hash, log_index) do nothing`,
-      [event.transactionHash, event.logIndex, event.day, event.amount, event.releaseTime]
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8)
+      on conflict (transaction_hash, log_index) do update set
+        request_id = excluded.request_id,
+        staker = excluded.staker,
+        node_id = excluded.node_id,
+        day = excluded.day,
+        amount = excluded.amount,
+        release_time = excluded.release_time`,
+      [
+        event.transactionHash,
+        event.logIndex,
+        event.requestId,
+        event.staker,
+        event.nodeId,
+        event.day,
+        event.amount,
+        event.releaseTime
+      ]
+    );
+  }
+
+  private async cancelPrincipalReleases(
+    requestIds: string[],
+    staker: string,
+    nodeId: string,
+    transactionHash: string,
+    logIndex: number
+  ) {
+    if (requestIds.length === 0) return;
+
+    await this.pool.query(
+      `update stake_fixed_rate_principal_releases
+      set
+        canceled = true,
+        canceled_by_transaction_hash = $4,
+        canceled_by_log_index = $5
+      where processed = false
+        and canceled = false
+        and request_id = any($1::numeric[])
+        and lower(staker) = lower($2)
+        and node_id = $3::numeric`,
+      [requestIds, staker, nodeId, transactionHash, logIndex]
     );
   }
 
@@ -345,7 +458,7 @@ export class Database {
     const result = await this.pool.query<{ id: string; day: string; amount: string; release_time: string }>(
       `select id::text, day::text, amount::text, release_time::text
       from stake_fixed_rate_principal_releases
-      where processed = false and release_time <= $1::numeric
+      where processed = false and canceled = false and release_time <= $1::numeric
       order by release_time asc, id asc`,
       [timestamp.toString()]
     );
