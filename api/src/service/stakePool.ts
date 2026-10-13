@@ -246,7 +246,6 @@ export class StakePoolService {
       restaked180Raw: claimInfo.restaked180Raw,
       restaked360Raw: claimInfo.restaked360Raw,
       claimedNetRaw: claimInfo.claimedNetRaw,
-      pendingRaw: claimInfo.pendingRaw,
       unprocessedRaw: claimInfo.unprocessedRaw,
       restakeConversionRate: claimInfo.restakeConversionRate,
       principalRaw: claimInfo.principalRaw,
@@ -610,7 +609,10 @@ export class StakePoolService {
   async getMiningFlows(query: MiningFlowsQuery) {
     const limit = Math.min(Math.max(Number(query.limit ?? '50'), 1), 200);
     const offset = Math.max(Number(query.offset ?? '0'), 0);
-    const values: unknown[] = [this.config.dgaiAddress];
+    const values: unknown[] = [
+      this.config.dgaiAddress,
+      this.config.dgridPoolHarvestFeeRaw.toString()
+    ];
     const where: string[] = [];
 
     if (query.wallet) {
@@ -654,7 +656,7 @@ export class StakePoolService {
           user_address as wallet,
           null::numeric as day,
           amount as amount_raw,
-          0::numeric as fee_raw,
+          $2::numeric as fee_raw,
           transaction_hash,
           block_number,
           log_index,

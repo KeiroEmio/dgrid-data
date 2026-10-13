@@ -301,7 +301,6 @@ curl https://ai-admin.dgrid.ai/data-api/v1/staking/overview
 type StakingOverviewResponse = {
   earnedRaw: string;
   claimedNetRaw: string;
-  pendingRaw: string;
   unprocessedRaw: string;
   restaked180Raw: string;
   restaked360Raw: string;
@@ -320,7 +319,6 @@ type StakingOverviewResponse = {
 |---|---|
 | earnedRaw | 累计质押收益，raw 18 位精度 |
 | claimedNetRaw | 累计收益到账 |
-| pendingRaw | 待领取收益，口径为 `earnedRaw - claimedNetRaw`，不扣复投 |
 | unprocessedRaw | 未处理收益，口径为 `earnedRaw - claimedNetRaw - restaked180Raw - restaked360Raw` |
 | restaked180Raw | 累计复投 180 天金额 |
 | restaked360Raw | 累计复投 360 天金额 |
