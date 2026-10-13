@@ -427,7 +427,7 @@ export class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_stake_events
         where day in (180, 360)
 
@@ -442,7 +442,7 @@ export class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_unstake_events
         where day in (180, 360)
 
@@ -457,7 +457,7 @@ export class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_claim_events
         where day in (180, 360)
 
@@ -472,7 +472,7 @@ export class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_restake_dgai_events
 
         union all
@@ -486,7 +486,7 @@ export class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_claim_unstake_events
       )
       select
@@ -560,22 +560,24 @@ export class StakePoolService {
         ) as bucket
       ), harvest_daily as (
         select
-          date_trunc('day', created_at) as bucket,
+          date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') as bucket,
           sum(amount) as claimed_net_raw,
           count(*) as claimed_events
         from dgrid_stake_pool_harvest_events
         where lower(reward_token) = lower($2)
-          and created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
-        group by date_trunc('day', created_at)
+          and block_timestamp is not null
+          and date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') >= date_trunc('day', now() at time zone 'Asia/Shanghai') - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai')
       ), restake_daily as (
         select
-          date_trunc('day', created_at) as bucket,
+          date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') as bucket,
           sum(amount) filter (where day = 180) as restaked_180_raw,
           sum(amount) filter (where day = 360) as restaked_360_raw,
           count(*) as restake_events
         from dgai_staking_restake_reward_call_events
-        where created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
-        group by date_trunc('day', created_at)
+        where block_timestamp is not null
+          and date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') >= date_trunc('day', now() at time zone 'Asia/Shanghai') - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai')
       )
       select
         to_char(buckets.bucket, 'YYYY-MM-DD') as date,
@@ -656,7 +658,7 @@ export class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgrid_stake_pool_harvest_events
         where lower(reward_token) = lower($1)
 
@@ -671,7 +673,7 @@ export class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_restake_reward_call_events
       )
       select

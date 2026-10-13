@@ -86,7 +86,7 @@ let StakePoolService = class StakePoolService {
     }
     async getFixedRateRewardClaimInfo() {
         await this.ensureFixedRateTables();
-        const state = await this.getFixedRateRewardState();
+        const state = await this.updateFixedRateRewardState();
         const earnedRaw = state.earnedRaw;
         const claimedResult = await this.database.query(`select coalesce(sum(amount), 0)::text as claimed_net_raw
       from dgai_staking_claim_events
@@ -115,16 +115,18 @@ let StakePoolService = class StakePoolService {
         (select count(distinct staker)::integer from dgai_staking_stake_events where day in (180, 360)) as lifetime_reward_wallets,
         (select count(*)::integer from current_principal_by_wallet where amount > 0) as current_pending_wallets`);
         const principalResult = await this.database.query(`with claim_unstake_by_request as (
-        select request_id, sum(amount) as amount
+        select lower(staker) as staker, request_id, sum(amount) as amount
         from dgai_staking_claim_unstake_events
-        group by request_id
+        group by lower(staker), request_id
       ), valid_releases as (
         select
           releases.request_id,
           releases.release_time,
           greatest(releases.amount - coalesce(claim_unstake_by_request.amount, 0), 0) as remaining_amount
         from stake_fixed_rate_principal_releases releases
-        left join claim_unstake_by_request on claim_unstake_by_request.request_id = releases.request_id
+        left join claim_unstake_by_request
+          on claim_unstake_by_request.request_id = releases.request_id
+          and claim_unstake_by_request.staker = lower(releases.staker)
         where releases.canceled = false
           and releases.day in (180, 360)
       )
@@ -314,7 +316,7 @@ let StakePoolService = class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_stake_events
         where day in (180, 360)
 
@@ -329,7 +331,7 @@ let StakePoolService = class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_unstake_events
         where day in (180, 360)
 
@@ -344,7 +346,7 @@ let StakePoolService = class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_claim_events
         where day in (180, 360)
 
@@ -359,7 +361,7 @@ let StakePoolService = class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_restake_dgai_events
 
         union all
@@ -373,7 +375,7 @@ let StakePoolService = class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_claim_unstake_events
       )
       select
@@ -432,22 +434,24 @@ let StakePoolService = class StakePoolService {
         ) as bucket
       ), harvest_daily as (
         select
-          date_trunc('day', created_at) as bucket,
+          date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') as bucket,
           sum(amount) as claimed_net_raw,
           count(*) as claimed_events
         from dgrid_stake_pool_harvest_events
         where lower(reward_token) = lower($2)
-          and created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
-        group by date_trunc('day', created_at)
+          and block_timestamp is not null
+          and date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') >= date_trunc('day', now() at time zone 'Asia/Shanghai') - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai')
       ), restake_daily as (
         select
-          date_trunc('day', created_at) as bucket,
+          date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') as bucket,
           sum(amount) filter (where day = 180) as restaked_180_raw,
           sum(amount) filter (where day = 360) as restaked_360_raw,
           count(*) as restake_events
         from dgai_staking_restake_reward_call_events
-        where created_at >= date_trunc('day', now()) - (($1::integer - 1) * interval '1 day')
-        group by date_trunc('day', created_at)
+        where block_timestamp is not null
+          and date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') >= date_trunc('day', now() at time zone 'Asia/Shanghai') - (($1::integer - 1) * interval '1 day')
+        group by date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai')
       )
       select
         to_char(buckets.bucket, 'YYYY-MM-DD') as date,
@@ -508,7 +512,7 @@ let StakePoolService = class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgrid_stake_pool_harvest_events
         where lower(reward_token) = lower($1)
 
@@ -523,7 +527,7 @@ let StakePoolService = class StakePoolService {
           transaction_hash,
           block_number,
           log_index,
-          created_at
+          to_timestamp(block_timestamp::double precision) as created_at
         from dgai_staking_restake_reward_call_events
       )
       select
@@ -578,12 +582,14 @@ let StakePoolService = class StakePoolService {
                         state = await this.processDueReleases(state, eventTimestamp);
                         break;
                     case 'CancelUnstake':
-                        if (event.cancel_request_id !== null) {
-                            await this.cancelPrincipalReleases([event.cancel_request_id], event.transaction_hash, event.log_index);
+                        if (event.cancel_request_id !== null && event.staker !== null && event.node_id !== null) {
+                            await this.cancelPrincipalReleases([event.cancel_request_id], event.staker, event.node_id, event.transaction_hash, event.log_index);
                         }
                         break;
                     case 'ChangeNode':
-                        await this.cancelPrincipalReleases(event.cancel_request_ids ?? [], event.transaction_hash, event.log_index);
+                        if (event.staker !== null && event.node_id !== null) {
+                            await this.cancelPrincipalReleases(event.cancel_request_ids ?? [], event.staker, event.node_id, event.transaction_hash, event.log_index);
+                        }
                         break;
                 }
                 state.lastProcessedBlock = BigInt(event.block_number);
@@ -765,7 +771,7 @@ let StakePoolService = class StakePoolService {
           cancel_request_id::text,
           null::jsonb as cancel_request_ids,
           staker,
-          null::text as node_id
+          node_id::text
         from dgai_staking_cancel_unstake_events
         where day in (180, 360)
           and (block_number > $1::numeric or (block_number = $1::numeric and log_index > $2::integer))
@@ -820,17 +826,19 @@ let StakePoolService = class StakePoolService {
             event.release_time
         ]);
     }
-    async cancelPrincipalReleases(requestIds, transactionHash, logIndex) {
+    async cancelPrincipalReleases(requestIds, staker, nodeId, transactionHash, logIndex) {
         if (requestIds.length === 0)
             return;
         await this.database.query(`update stake_fixed_rate_principal_releases
       set
         canceled = true,
-        canceled_by_transaction_hash = $2,
-        canceled_by_log_index = $3
+        canceled_by_transaction_hash = $4,
+        canceled_by_log_index = $5
       where processed = false
         and canceled = false
-        and request_id = any($1::numeric[])`, [requestIds, transactionHash, logIndex]);
+        and request_id = any($1::numeric[])
+        and lower(staker) = lower($2)
+        and node_id = $3::numeric`, [requestIds, staker, nodeId, transactionHash, logIndex]);
     }
     async processDueReleases(state, timestamp) {
         const result = await this.database.query(`select id::text, day::text, amount::text, release_time::text
