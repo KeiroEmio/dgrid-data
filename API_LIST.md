@@ -310,6 +310,9 @@ type StakingOverviewResponse = {
   activeRaw: string;
   unlockingRaw: string;
   withdrawableRaw: string;
+  counts: {
+    lifetimeRewardWallets: number;
+  };
 };
 ```
 
@@ -328,6 +331,7 @@ type StakingOverviewResponse = {
 | activeRaw | 活跃本金 |
 | unlockingRaw | 解锁中本金 |
 | withdrawableRaw | 到期可提本金 |
+| counts.lifetimeRewardWallets | 历史上领取或复投过 180/360 天质押奖励的钱包数，按钱包地址去重 |
 
 ---
 
@@ -503,7 +507,7 @@ type AccPerShareClaimInfoResponse = {
 
 ### GET `/stakePool/fixedRateReward/claimInfo/get`
 
-用途：fixedRate 质押收益统计，staking overview 的底层来源。
+用途：fixedRate 质押收益统计。
 
 请求示例：
 
@@ -529,7 +533,6 @@ type FixedRateClaimInfoResponse = {
   withdrawableRaw: string;
   counts: {
     lifetimeRewardWallets: number;
-    currentPendingWallets: number;
   };
 };
 ```

@@ -155,29 +155,19 @@ export class StakePoolService {
         coalesce(sum(amount) filter (where target_day = 360), 0)::text as restaked_360_raw
       from dgai_staking_restake_dgai_events`
     );
-    const walletCountsResult = await this.database.query<{
-      lifetime_reward_wallets: number;
-      current_pending_wallets: number;
-    }>(
-      `with principal_by_wallet as (
-        select staker as wallet, sum(amount) as amount
-        from dgai_staking_stake_events
-        where day in (180, 360)
-        group by staker
+    const walletCountsResult = await this.database.query<{ lifetime_reward_wallets: number }>(
+      `select count(distinct wallet)::integer as lifetime_reward_wallets
+      from (
+        select lower(staker) as wallet
+        from dgai_staking_claim_events
+        where day in (180, 360) and amount > 0
 
-        union all
+        union
 
-        select staker as wallet, -sum(amount) as amount
-        from dgai_staking_claim_unstake_events
-        group by staker
-      ), current_principal_by_wallet as (
-        select wallet, sum(amount) as amount
-        from principal_by_wallet
-        group by wallet
-      )
-      select
-        (select count(distinct staker)::integer from dgai_staking_stake_events where day in (180, 360)) as lifetime_reward_wallets,
-        (select count(*)::integer from current_principal_by_wallet where amount > 0) as current_pending_wallets`
+        select lower(user_address) as wallet
+        from dgai_staking_restake_dgai_events
+        where source_day in (180, 360) and amount > 0
+      ) reward_wallets`
     );
     const principalResult = await this.database.query<{
       unlocking_raw: string;
@@ -232,8 +222,7 @@ export class StakePoolService {
       unlockingRaw: unlockingRaw.toString(),
       withdrawableRaw: withdrawableRaw.toString(),
       counts: {
-        lifetimeRewardWallets: walletCountsResult.rows[0]?.lifetime_reward_wallets ?? 0,
-        currentPendingWallets: walletCountsResult.rows[0]?.current_pending_wallets ?? 0
+        lifetimeRewardWallets: walletCountsResult.rows[0]?.lifetime_reward_wallets ?? 0
       }
     };
   }
@@ -251,7 +240,8 @@ export class StakePoolService {
       principalRaw: claimInfo.principalRaw,
       activeRaw: claimInfo.activeRaw,
       unlockingRaw: claimInfo.unlockingRaw,
-      withdrawableRaw: claimInfo.withdrawableRaw
+      withdrawableRaw: claimInfo.withdrawableRaw,
+      counts: claimInfo.counts
     };
   }
 
