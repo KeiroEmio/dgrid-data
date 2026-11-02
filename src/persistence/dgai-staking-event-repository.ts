@@ -100,6 +100,7 @@ export class DgaiStakingEventRepository {
         block_number numeric not null,
         transaction_hash text not null,
         log_index integer not null,
+        node_id numeric not null,
         staker text not null,
         cancel_request_id numeric not null,
         day numeric not null,
@@ -107,6 +108,8 @@ export class DgaiStakingEventRepository {
         created_at timestamptz not null default now(),
         unique (transaction_hash, log_index)
       );
+
+      alter table dgai_staking_cancel_unstake_events add column if not exists node_id numeric;
 
       create index if not exists dgai_staking_cancel_unstake_events_staker_idx
         on dgai_staking_cancel_unstake_events (staker);
@@ -338,11 +341,12 @@ export class DgaiStakingEventRepository {
   private async saveCancelUnstake(client: PoolClient, event: CancelUnstakeEventEntity) {
     await client.query(
       `insert into dgai_staking_cancel_unstake_events (
-        contract_address, block_number, transaction_hash, log_index, staker, cancel_request_id, day, amount, block_timestamp
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        contract_address, block_number, transaction_hash, log_index, node_id, staker, cancel_request_id, day, amount, block_timestamp
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       on conflict (transaction_hash, log_index) do update set
         contract_address = excluded.contract_address,
         block_number = excluded.block_number,
+        node_id = excluded.node_id,
         staker = excluded.staker,
         cancel_request_id = excluded.cancel_request_id,
         day = excluded.day,
@@ -353,6 +357,7 @@ export class DgaiStakingEventRepository {
         event.blockNumber,
         event.transactionHash,
         event.logIndex,
+        event.nodeId,
         event.staker,
         event.cancelRequestId,
         event.day,
