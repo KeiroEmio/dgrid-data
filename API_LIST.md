@@ -491,6 +491,76 @@ type StakingSnapshotPageResponse = {
 
 所有 uint/状态数值以十进制字符串返回，避免客户端精度损失。未完成或不存在的日期返回 404；日期格式错误或 limit 超出范围返回 400。
 
+### GET `/staking/snapshots/export`
+
+用途：供其他服务器按 UTC 日期范围稳定分页拉取已完成的快照仓位。`from`、`to` 均为闭区间；未完成的快照不会出现在导出结果中。
+
+Query 参数：
+
+| 参数 | 必填 | 类型 | 说明 | 默认值 |
+|---|---|---|---|---|
+| from | 是 | string | 起始快照日期，`YYYY-MM-DD` | - |
+| to | 是 | string | 结束快照日期，`YYYY-MM-DD` | - |
+| limit | 否 | number | 每页 position 数，范围 1-5000 | `1000` |
+| cursor | 否 | string | 上一页的 `nextCursor` | - |
+
+请求示例：
+
+```bash
+curl "https://ai-admin.dgrid.ai/data-api/v1/staking/snapshots/export?from=2026-11-01&to=2026-11-09&limit=1000"
+curl "https://ai-admin.dgrid.ai/data-api/v1/staking/snapshots/export?from=2026-11-01&to=2026-11-09&limit=1000&cursor=<nextCursor>"
+```
+
+游标绑定 `from` 和 `to`，修改日期范围后必须从第一页重新拉取。分页顺序固定为 `snapshotDate, wallet, nodeId, day`，与数据库主键一致，因此新增后续日期的快照不会改变已经完成日期的翻页结果。
+
+返回结构：
+
+```ts
+type StakingSnapshotExportResponse = {
+  schemaVersion: 1;
+  from: string;
+  to: string;
+  items: Array<{
+    cursor: string; // 当前记录之后的恢复点
+    snapshotDate: string;
+    blockNumber: string;
+    blockTimestamp: string;
+    blockHash: string;
+    wallet: string;
+    nodeId: string;
+    day: string;
+    nodeStatus: string;
+    nodeOwner: string;
+    pendingReward: string;
+    lastClaimTime: string;
+    amount: string;
+    pendingUnstake: string;
+    unpaid: string;
+    claimedAmount: string;
+  }>;
+  nextCursor: string | null;
+};
+```
+
+### GET `/staking/snapshots/export.ndjson`
+
+用途：以 `application/x-ndjson` 分块传输同一份导出数据，适合逐行处理和落库。参数及排序与 JSON 导出相同。
+
+```bash
+curl --no-buffer \
+  "https://ai-admin.dgrid.ai/data-api/v1/staking/snapshots/export.ndjson?from=2026-11-01&to=2026-11-09&limit=5000"
+```
+
+响应第一行为 `metadata`，中间每行为一条 `position`，最后一行为 `checkpoint`。每条 `position` 都带当前记录的 `cursor`；连接中断时，消费端使用最后一条已经成功落库记录的 cursor 继续请求。正常完成一页时也可读取响应头 `X-Next-Cursor` 或末行 `nextCursor`。
+
+```jsonl
+{"type":"metadata","schemaVersion":1,"from":"2026-11-01","to":"2026-11-09"}
+{"type":"position","cursor":"...","snapshotDate":"2026-11-09","wallet":"0x...","nodeId":"2","day":"180"}
+{"type":"checkpoint","rowCount":1000,"nextCursor":"..."}
+```
+
+消费端必须以 `(snapshotDate, wallet, nodeId, day)` 作为幂等键。若连接在客户端保存 cursor 之前中断，重复接收到最后一小段数据时应执行 upsert，不应直接追加重复记录。
+
 ---
 
 ## 6. 底层统计接口
