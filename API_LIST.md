@@ -421,6 +421,78 @@ type StakingFlowsResponse = {
 
 ---
 
+### GET `/staking/snapshots`
+
+用途：列出最近 100 个已完成的每日 staking positions 快照。快照固定在对应日期 UTC 00:00 时刻之前的最后一个区块。
+
+快照任务由独立的 `dgrid-data-snapshot` 服务运行：启动时补齐当天快照，完成后等待下一个 UTC 00:00；若爬虫尚未同步到目标区块或执行失败，则按 `STAKING_SNAPSHOT_RETRY_DELAY_MS` 重试。候选钱包来自目标区块之前的 Stake 事件，统一转小写并去重，然后在目标历史区块读取合约 positions，仅保存 nodeId 2/3。
+
+返回结构：
+
+```ts
+type StakingSnapshotsResponse = Array<{
+  snapshotDate: string;
+  blockNumber: string;
+  blockTimestamp: string;
+  blockHash: string;
+  totalWallets: string;
+  storedWallets: string;
+}>;
+```
+
+### GET `/staking/snapshots/:date`
+
+用途：按钱包地址分页读取指定日期中 nodeId 为 2 或 3 的质押 positions。仅返回至少有一个匹配 position 的钱包。
+
+Query 参数：
+
+| 参数 | 必填 | 类型 | 说明 | 默认值 |
+|---|---|---|---|---|
+| limit | 否 | number | 每页钱包数，范围 1-500 | `200` |
+| after | 否 | string | 上一页返回的 `nextCursor` 钱包地址，按小写地址 keyset 分页 | - |
+
+请求示例：
+
+```bash
+curl "https://ai-admin.dgrid.ai/data-api/v1/staking/snapshots/2026-11-09?limit=200"
+curl "https://ai-admin.dgrid.ai/data-api/v1/staking/snapshots/2026-11-09?limit=200&after=0x0000000000000000000000000000000000000000"
+```
+
+返回结构：
+
+```ts
+type StakingSnapshotPageResponse = {
+  snapshot: {
+    snapshotDate: string;
+    blockNumber: string;
+    blockTimestamp: string;
+    blockHash: string;
+    totalWallets: string;
+    storedWallets: string;
+  };
+  items: Array<{
+    wallet: string;
+    positions: Array<{
+      nodeId: string;
+      day: string;
+      nodeStatus: string;
+      nodeOwner: string;
+      pendingReward: string;
+      lastClaimTime: string;
+      amount: string;
+      pendingUnstake: string;
+      unpaid: string;
+      claimedAmount: string;
+    }>;
+  }>;
+  nextCursor: string | null;
+};
+```
+
+所有 uint/状态数值以十进制字符串返回，避免客户端精度损失。未完成或不存在的日期返回 404；日期格式错误或 limit 超出范围返回 400。
+
+---
+
 ## 6. 底层统计接口
 
 这些接口主要用于调试或兼容旧页面，前端主页面优先使用 mining/staking 三件套接口。

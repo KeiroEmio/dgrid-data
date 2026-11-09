@@ -33,6 +33,8 @@ export class DgaiStakingEventRepository {
 
       create index if not exists dgai_staking_stake_events_staker_idx
         on dgai_staking_stake_events (staker);
+      create index if not exists dgai_staking_stake_events_staker_block_idx
+        on dgai_staking_stake_events (lower(staker), block_number);
       create index if not exists dgai_staking_stake_events_node_id_idx
         on dgai_staking_stake_events (node_id);
 

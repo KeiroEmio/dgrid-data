@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { DgaiStakingEventRepository } from './dgai-staking-event-repository.js';
+import { migrateStakingSnapshotSchema } from './staking-snapshot-schema.js';
 import type { DgaiStakingEventEntity } from '../entities/index.js';
 import type { IndexedEvent, EventStats } from '../types.js';
 
@@ -33,6 +34,7 @@ export class Database {
 
   async migrate() {
     await this.dgaiStakingEvents.migrate();
+    await migrateStakingSnapshotSchema(this.pool);
 
     await this.pool.query(`
       create table if not exists chain_events (

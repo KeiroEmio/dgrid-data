@@ -9,11 +9,15 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 import { Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
+import { migrateStakingSnapshotSchema } from '../../../src/persistence/staking-snapshot-schema.js';
 import { AppConfigService } from '../config/config.service.js';
 let DatabaseService = class DatabaseService {
     pool;
     constructor(config) {
         this.pool = new Pool({ connectionString: config.databaseUrl });
+    }
+    async onModuleInit() {
+        await migrateStakingSnapshotSchema(this.pool);
     }
     query(sql, values) {
         return this.pool.query(sql, values);

@@ -12,6 +12,18 @@ services:
     networks:
       - dgrid-network
 
+  dgrid-data-snapshot:
+    image: dgrid-data:latest
+    container_name: dgrid-data-snapshot
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: npm run snapshot:start
+    depends_on:
+      - dgrid-data-crawler
+    networks:
+      - dgrid-network
+
   dgrid-data-api:
     image: dgrid-data:latest
     container_name: dgrid-data-api
