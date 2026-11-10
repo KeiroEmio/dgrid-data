@@ -191,8 +191,16 @@ async function runSnapshot(
   );
 
   const walletsResult = await pool.query<{ wallet: string }>(
-    `select distinct lower(staker) as wallet from dgai_staking_stake_events
-     where block_number <= $1::numeric order by lower(staker)`,
+    `select wallet from (
+       select lower(staker) as wallet
+       from dgai_staking_stake_events
+       where block_number <= $1::numeric and node_id in (2, 3)
+       union
+       select lower(user_address) as wallet
+       from dgai_staking_change_node_events
+       where block_number <= $1::numeric and to_node_id in (2, 3)
+     ) target_node_candidates
+     order by wallet`,
     [snapshotBlock.toString()]
   );
   const wallets = walletsResult.rows.map(({ wallet }) => wallet);

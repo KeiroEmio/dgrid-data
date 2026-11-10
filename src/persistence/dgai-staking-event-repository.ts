@@ -35,6 +35,9 @@ export class DgaiStakingEventRepository {
         on dgai_staking_stake_events (staker);
       create index if not exists dgai_staking_stake_events_staker_block_idx
         on dgai_staking_stake_events (lower(staker), block_number);
+      create index if not exists dgai_staking_stake_events_target_nodes_snapshot_idx
+        on dgai_staking_stake_events (block_number, lower(staker))
+        where node_id in (2, 3);
       create index if not exists dgai_staking_stake_events_node_id_idx
         on dgai_staking_stake_events (node_id);
 
@@ -141,6 +144,9 @@ export class DgaiStakingEventRepository {
         on dgai_staking_change_node_events (from_node_id);
       create index if not exists dgai_staking_change_node_events_to_node_idx
         on dgai_staking_change_node_events (to_node_id);
+      create index if not exists dgai_staking_change_node_events_target_nodes_snapshot_idx
+        on dgai_staking_change_node_events (block_number, lower(user_address))
+        where to_node_id in (2, 3);
 
       create table if not exists dgai_staking_restake_reward_call_events (
         id bigserial primary key,

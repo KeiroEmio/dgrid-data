@@ -425,7 +425,9 @@ type StakingFlowsResponse = {
 
 用途：列出最近 100 个已完成的每日 staking positions 快照。快照固定在对应日期 UTC 00:00 时刻之前的最后一个区块。
 
-快照任务由独立的 `dgrid-data-snapshot` 服务运行：启动时补齐当天快照，完成后等待下一个 UTC 00:00；若爬虫尚未同步到目标区块或执行失败，则按 `STAKING_SNAPSHOT_RETRY_DELAY_MS` 重试。候选钱包来自目标区块之前的 Stake 事件，统一转小写并去重，然后在目标历史区块读取合约 positions，仅保存 nodeId 2/3。
+面向服务端消费方的完整同步、续传和幂等处理说明见 [SNAPSHOT_API_INTEGRATION.md](./SNAPSHOT_API_INTEGRATION.md)。
+
+快照任务由独立的 `dgrid-data-snapshot` 服务运行：启动时补齐当天快照，完成后等待下一个 UTC 00:00；若爬虫尚未同步到目标区块或执行失败，则按 `STAKING_SNAPSHOT_RETRY_DELAY_MS` 重试。候选钱包是目标区块之前曾在 nodeId 2/3 发生 Stake，或曾通过 ChangeNode 迁入 nodeId 2/3 的地址并集；地址统一转小写并去重，然后在目标历史区块读取合约 positions，仅保存 nodeId 2/3。
 
 返回结构：
 
