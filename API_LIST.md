@@ -429,6 +429,8 @@ type StakingFlowsResponse = {
 
 快照任务由独立的 `dgrid-data-snapshot` 服务运行：启动时补齐当天快照，完成后等待下一个 UTC 00:00；若爬虫尚未同步到目标区块或执行失败，则按 `STAKING_SNAPSHOT_RETRY_DELAY_MS` 重试。候选钱包是目标区块之前曾在 nodeId 2/3 发生 Stake，或曾通过 ChangeNode 迁入 nodeId 2/3 的地址并集；地址统一转小写并去重，然后在目标历史区块读取合约 positions，仅保存 nodeId 2/3。
 
+快照 position 的 `day` 字段保持原名称，但写入的是链上 `getPositions.tierId`（仓位标识），不是 `getPositions.day`（实际锁定天数）。例如 `day="360"` 是旧 360 天 / 90% 仓位，`day="3600"` 是新 360 天 / 80% 仓位；两者实际锁定天数均为 360。消费端应按 `day` 区分仓位，不要把 `3600` 当作 3600 天。
+
 返回结构：
 
 ```ts

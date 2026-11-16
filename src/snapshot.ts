@@ -21,6 +21,7 @@ const RETRY_DELAY_MS = positiveIntegerEnv('STAKING_SNAPSHOT_RETRY_DELAY_MS', 60_
 
 type Position = {
   nodeId: bigint;
+  tierId: bigint;
   day: bigint;
   nodeStatus: number;
   nodeOwner: Address;
@@ -243,7 +244,8 @@ async function runSnapshot(
               pending_reward = excluded.pending_reward, last_claim_time = excluded.last_claim_time,
               amount = excluded.amount, pending_unstake = excluded.pending_unstake,
               unpaid = excluded.unpaid, claimed_amount = excluded.claimed_amount`,
-            [date, item.wallet, position.nodeId.toString(), position.day.toString(), position.nodeStatus,
+            // Keep the existing day column/API field, but use the on-chain tier key to distinguish 360 and 3600.
+            [date, item.wallet, position.nodeId.toString(), position.tierId.toString(), position.nodeStatus,
               position.nodeOwner.toLowerCase(), position.pendingReward.toString(), position.lastClaimTime.toString(),
               position.amount.toString(), position.pendingUnstake.toString(), position.unpaid.toString(), position.claimedAmount.toString()]
           );
