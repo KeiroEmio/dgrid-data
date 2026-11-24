@@ -149,10 +149,15 @@ export class StakePoolService {
       from dgai_staking_claim_events
       where day in (180, 360)`
     );
-    const restakeResult = await this.database.query<{ restaked_180_raw: string; restaked_360_raw: string }>(
+    const restakeResult = await this.database.query<{
+      restaked_180_raw: string;
+      restaked_360_raw: string;
+      restaked_3600_raw: string;
+    }>(
       `select
         coalesce(sum(amount) filter (where target_day = 180), 0)::text as restaked_180_raw,
-        coalesce(sum(amount) filter (where target_day = 360), 0)::text as restaked_360_raw
+        coalesce(sum(amount) filter (where target_day = 360), 0)::text as restaked_360_raw,
+        coalesce(sum(amount) filter (where target_day = 3600), 0)::text as restaked_3600_raw
       from dgai_staking_restake_dgai_events`
     );
     const walletCountsResult = await this.database.query<{ lifetime_reward_wallets: number }>(
@@ -199,6 +204,7 @@ export class StakePoolService {
     const claimedNetRaw = BigInt(claimedResult.rows[0]?.claimed_net_raw ?? '0');
     const restaked180Raw = BigInt(restakeResult.rows[0]?.restaked_180_raw ?? '0');
     const restaked360Raw = BigInt(restakeResult.rows[0]?.restaked_360_raw ?? '0');
+    const restaked3600Raw = BigInt(restakeResult.rows[0]?.restaked_3600_raw ?? '0');
     const restakedTotalRaw = restaked180Raw + restaked360Raw;
     const pendingRaw = earnedRaw - claimedNetRaw;
     const unprocessedRaw = pendingRaw - restakedTotalRaw;
@@ -215,6 +221,7 @@ export class StakePoolService {
       unprocessedRaw: unprocessedRaw.toString(),
       restaked180Raw: restaked180Raw.toString(),
       restaked360Raw: restaked360Raw.toString(),
+      restaked3600Raw: restaked3600Raw.toString(),
       restakeConversionRate: restakeRate,
       cumulativeRestakeRate: restakeRate,
       principalRaw: principalRaw.toString(),
@@ -234,6 +241,7 @@ export class StakePoolService {
       earnedRaw: claimInfo.earnedRaw,
       restaked180Raw: claimInfo.restaked180Raw,
       restaked360Raw: claimInfo.restaked360Raw,
+      restaked3600Raw: claimInfo.restaked3600Raw,
       claimedNetRaw: claimInfo.claimedNetRaw,
       unprocessedRaw: claimInfo.unprocessedRaw,
       restakeConversionRate: claimInfo.restakeConversionRate,
@@ -257,6 +265,7 @@ export class StakePoolService {
       claimed_net_raw: string;
       restaked_180_raw: string;
       restaked_360_raw: string;
+      restaked_3600_raw: string;
       stake_raw: string;
       unstake_raw: string;
       claim_unstake_raw: string;
@@ -278,7 +287,7 @@ export class StakePoolService {
           sum(amount) as claimed_net_raw,
           count(*) as claim_events
         from dgai_staking_claim_events
-        where day in (180, 360)
+        where day in (180, 360, 3600)
           and block_timestamp is not null
           and date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') >= date_trunc('day', now() at time zone 'Asia/Shanghai') - (($1::integer - 1) * interval '1 day')
         group by date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai')
@@ -287,6 +296,7 @@ export class StakePoolService {
           date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') as bucket,
           sum(amount) filter (where target_day = 180) as restaked_180_raw,
           sum(amount) filter (where target_day = 360) as restaked_360_raw,
+          sum(amount) filter (where target_day = 3600) as restaked_3600_raw,
           count(*) as restake_events
         from dgai_staking_restake_dgai_events
         where block_timestamp is not null
@@ -298,7 +308,7 @@ export class StakePoolService {
           sum(amount) as stake_raw,
           count(*) as stake_events
         from dgai_staking_stake_events
-        where day in (180, 360)
+        where day in (180, 360, 3600)
           and block_timestamp is not null
           and date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') >= date_trunc('day', now() at time zone 'Asia/Shanghai') - (($1::integer - 1) * interval '1 day')
         group by date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai')
@@ -308,7 +318,7 @@ export class StakePoolService {
           sum(amount) as unstake_raw,
           count(*) as unstake_events
         from dgai_staking_unstake_events
-        where day in (180, 360)
+        where day in (180, 360, 3600)
           and block_timestamp is not null
           and date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai') >= date_trunc('day', now() at time zone 'Asia/Shanghai') - (($1::integer - 1) * interval '1 day')
         group by date_trunc('day', to_timestamp(block_timestamp::double precision) at time zone 'Asia/Shanghai')
@@ -327,6 +337,7 @@ export class StakePoolService {
         coalesce(claim_daily.claimed_net_raw, 0)::text as claimed_net_raw,
         coalesce(restake_daily.restaked_180_raw, 0)::text as restaked_180_raw,
         coalesce(restake_daily.restaked_360_raw, 0)::text as restaked_360_raw,
+        coalesce(restake_daily.restaked_3600_raw, 0)::text as restaked_3600_raw,
         coalesce(stake_daily.stake_raw, 0)::text as stake_raw,
         coalesce(unstake_daily.unstake_raw, 0)::text as unstake_raw,
         coalesce(claim_unstake_daily.claim_unstake_raw, 0)::text as claim_unstake_raw,
@@ -353,6 +364,7 @@ export class StakePoolService {
         claimedNetRaw: row.claimed_net_raw,
         restaked180Raw: row.restaked_180_raw,
         restaked360Raw: row.restaked_360_raw,
+        restaked3600Raw: row.restaked_3600_raw,
         stakeRaw: row.stake_raw,
         unstakeRaw: row.unstake_raw,
         claimUnstakeRaw: row.claim_unstake_raw,

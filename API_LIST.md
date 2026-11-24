@@ -304,6 +304,7 @@ type StakingOverviewResponse = {
   unprocessedRaw: string;
   restaked180Raw: string;
   restaked360Raw: string;
+  restaked3600Raw: string;
   restakeConversionRate: string;
   cumulativeRestakeRate: string;
   principalRaw: string;
@@ -325,6 +326,7 @@ type StakingOverviewResponse = {
 | unprocessedRaw | 未处理收益，口径为 `earnedRaw - claimedNetRaw - restaked180Raw - restaked360Raw` |
 | restaked180Raw | 累计复投 180 天金额 |
 | restaked360Raw | 累计复投 360 天金额 |
+| restaked3600Raw | 累计复投到新仓位 `tierId=3600` 的金额，实际锁定期为 360 天；无数据时为 `"0"` |
 | restakeConversionRate | 累计收益复投率 |
 | cumulativeRestakeRate | 累计收益复投率，兼容字段 |
 | principalRaw | 当前计息本金总额 |
@@ -338,6 +340,8 @@ type StakingOverviewResponse = {
 ### GET `/staking/trend`
 
 用途：质押收益趋势图和区间分析。
+
+`restaked180Raw`、`restaked360Raw`、`restaked3600Raw` 分别按复投目标仓位 `target_day=180/360/3600` 统计，互不合并。`3600` 是新仓位标识，实际锁定期为 360 天；无复投数据时返回字符串 `"0"`。`claimedNetRaw`、`stakeRaw`、`unstakeRaw` 及对应事件数包含 `180/360/3600` 三种仓位。
 
 Query 参数：
 
@@ -363,6 +367,7 @@ type StakingTrendResponse = {
     claimedNetRaw: string;
     restaked180Raw: string;
     restaked360Raw: string;
+    restaked3600Raw: string;
     stakeRaw: string;
     unstakeRaw: string;
     claimUnstakeRaw: string;
