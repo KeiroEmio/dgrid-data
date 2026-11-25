@@ -1,6 +1,6 @@
 # 一次性全量质押数据报告
 
-该任务在固定的 BSC 最新区块读取 `DGAIStaking.getPositions(wallet)`，将所有在爬虫事件库中出现过的质押地址的仓位导出为 CSV 文件。文件通过 Docker bind mount 写入服务器项目根目录。它是一次性程序，不会启动或重启 crawler、snapshot、API 服务，也不发送任何链上交易。
+该任务在固定的 BSC 最新区块读取 `DGAIStaking.getPositions(wallet)`，将所有在爬虫事件库中出现过的质押地址的仓位导出为 CSV 文件。文件通过 Docker bind mount 写入服务器项目根目录。地址分批读取，结果暂存于 PostgreSQL 会话临时表而非 Node 内存；输出按钱包当前在仓本金总量（该钱包所有 position 的 `amount_raw` 合计）降序排列，同钱包的仓位会排在一起。它是一次性程序，不会启动或重启 crawler、snapshot、API 服务，也不发送任何链上交易。
 
 ## 服务器上手动执行
 
@@ -39,8 +39,9 @@ docker compose -f docker-compose.staking-current-report.yml run --build --rm \
 
 ## CSV 字段
 
-金额字段均为 18 位精度 raw 整数，保存在 PostgreSQL `numeric` 中：
+金额字段均为 18 位精度 raw 整数，CSV 中按十进制整数文本写出：
 
+- `wallet_total_amount_raw`：该钱包所有 position 的 `amount_raw` 合计，也是 CSV 的降序排序键。
 - `amount_raw`：当前在仓本金。
 - `pending_unstake_raw`：解锁中的本金。
 - `principal_raw`：`amount_raw + pending_unstake_raw`。
@@ -48,5 +49,7 @@ docker compose -f docker-compose.staking-current-report.yml run --build --rm \
 - `unpaid_raw`：仓位已结算但未领取收益字段。
 - `claimed_amount_raw`：该仓位链上累计已领取金额。
 - `tier_id`、`day`、`fixed_rate`：按 `getPositions` 原字段分别保存；3600 是新仓位标识，不是 3600 天。
+
+CSV 每行是一条 `(wallet, node_id, tier_id)` 仓位；同一钱包可能出现多行。`wallet_total_amount_raw` 在这些行上重复，方便表格排序和筛选。
 
 该 CSV 记录的是 `getPositions` 在指定区块的仓位状态；`claimed_amount_raw` 是合约 position 字段，不等同于不区分仓位的全历史 Claim 事件总额。若要审计所有历史领取转账，应另按 `Claim` 事件表汇总。金额 raw 字段可能超过电子表格软件的精度限制；导入表格时应将这些列设为文本，避免自动舍入。
