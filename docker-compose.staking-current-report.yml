@@ -1,0 +1,21 @@
+services:
+  staking-current-report:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dgrid-data:staking-current-report
+    container_name: dgrid-data-staking-current-report
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      STAKING_CURRENT_REPORT_OUTPUT_DIR: /output
+    volumes:
+      - .:/output
+    command: npm run staking:current-report
+    networks:
+      - dgrid-network
+
+networks:
+  dgrid-network:
+    external: true

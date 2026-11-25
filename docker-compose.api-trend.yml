@@ -1,0 +1,3 @@
+services:
+  dgrid-data-api:
+    image: dgrid-data-api:trend3600-20261117
